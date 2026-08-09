@@ -1,0 +1,17 @@
+{
+  "name": "yukistream-anime",
+  "version": "1.0.0",
+  "description": "Streaming anime gratis tanpa iklan",
+  "main": "index.html",
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "vercel": "^32.0.0"
+  }
+}
