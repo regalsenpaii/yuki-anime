@@ -1,8 +1,3 @@
-/**
- * API Home - Scrape Latest, On-going, and Popular anime
- * Vercel Serverless Function
- */
-
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -10,12 +5,25 @@ const BASE_URL = 'https://s13.nontonanimeid.boats';
 
 const axiosConfig = {
   headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
-    'Referer': BASE_URL
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': 'https://www.google.com/',
+    'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'cross-site',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0',
+    'Connection': 'keep-alive'
   },
-  timeout: 15000
+  timeout: 20000,
+  maxRedirects: 5,
+  decompress: true
 };
 
 function extractSlug(url) {
@@ -28,7 +36,6 @@ function extractSlug(url) {
 function parseAnimeCard($, element) {
   const $el = $(element);
   
-  // Try multiple selector patterns
   const link = $el.find('a').first().attr('href') || 
                $el.find('.bsx a').attr('href') || 
                $el.find('.thumb a').attr('href') || '';
@@ -56,7 +63,6 @@ function parseAnimeCard($, element) {
 }
 
 module.exports = async (req, res) => {
-  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -72,34 +78,32 @@ module.exports = async (req, res) => {
     const popular = [];
     const featured = [];
     
-    // Parse Ongoing - common patterns
+    // Ongoing
     $('.listupd .bsx, .ongoing .bsx, .series-ongoing .bsx, [class*="ongoing"] .bsx').each((i, el) => {
       if (i < 24) ongoing.push(parseAnimeCard($, el));
     });
     
-    // If no ongoing found, try broader selectors
     if (ongoing.length === 0) {
       $('.bsx, .animposx, .anime-card, .item').slice(0, 24).each((i, el) => {
         ongoing.push(parseAnimeCard($, el));
       });
     }
     
-    // Parse Latest Updates
+    // Latest
     $('.listupd .bsx, .latest .bsx, .new-series .bsx, .updates .bsx').each((i, el) => {
       if (i < 24) latest.push(parseAnimeCard($, el));
     });
     
-    // Parse Popular / Trending
+    // Popular
     $('.popular .bsx, .trending .bsx, .hot-series .bsx, .pop .bsx').each((i, el) => {
       if (i < 12) popular.push(parseAnimeCard($, el));
     });
     
-    // Featured / Hero (first few items with good images)
+    // Featured
     $('.bixbox .bsx, .featured .bsx, .highlight .bsx').slice(0, 5).each((i, el) => {
       featured.push(parseAnimeCard($, el));
     });
     
-    // Deduplicate
     const dedupe = (arr) => {
       const seen = new Set();
       return arr.filter(item => {
@@ -109,7 +113,6 @@ module.exports = async (req, res) => {
       });
     };
     
-    // If sections are empty, distribute from what we have
     const allItems = [...ongoing, ...latest, ...popular, ...featured];
     const uniqueAll = dedupe(allItems);
     
@@ -125,7 +128,7 @@ module.exports = async (req, res) => {
     
   } catch (error) {
     console.error('Home scrape error:', error.message);
-    res.status(500).json({
+    res.status(200).json({
       success: false,
       error: error.message,
       ongoing: [],

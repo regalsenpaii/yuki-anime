@@ -1,8 +1,3 @@
-/**
- * API Search - Search anime by keyword
- * Vercel Serverless Function
- */
-
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -10,12 +5,24 @@ const BASE_URL = 'https://s13.nontonanimeid.boats';
 
 const axiosConfig = {
   headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
-    'Referer': BASE_URL
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': BASE_URL,
+    'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0'
   },
-  timeout: 15000
+  timeout: 20000,
+  maxRedirects: 5,
+  decompress: true
 };
 
 function extractSlug(url) {
@@ -45,7 +52,6 @@ module.exports = async (req, res) => {
     
     const results = [];
     
-    // Try multiple search result selectors
     const selectors = [
       '.listupd .bsx',
       '.search-results .bsx',
@@ -90,7 +96,6 @@ module.exports = async (req, res) => {
       if (results.length > 0) break;
     }
     
-    // Deduplicate
     const seen = new Set();
     const unique = results.filter(item => {
       if (seen.has(item.slug)) return false;
@@ -107,7 +112,7 @@ module.exports = async (req, res) => {
     
   } catch (error) {
     console.error('Search error:', error.message);
-    res.status(500).json({
+    res.status(200).json({
       success: false,
       error: error.message,
       query: q,

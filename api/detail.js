@@ -1,8 +1,3 @@
-/**
- * API Detail - Get anime details, synopsis, genres, episodes
- * Vercel Serverless Function
- */
-
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -10,12 +5,24 @@ const BASE_URL = 'https://s13.nontonanimeid.boats';
 
 const axiosConfig = {
   headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
-    'Referer': BASE_URL
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': BASE_URL,
+    'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0'
   },
-  timeout: 15000
+  timeout: 20000,
+  maxRedirects: 5,
+  decompress: true
 };
 
 function extractSlug(url) {
@@ -48,7 +55,6 @@ module.exports = async (req, res) => {
     const { data: html } = await axios.get(detailUrl, axiosConfig);
     const $ = cheerio.load(html);
     
-    // Basic Info
     const title = $('h1.entry-title, .anime-title h1, .title h1, h1').first().text().trim() ||
                   $('meta[property="og:title"]').attr('content') || '';
     
@@ -58,11 +64,9 @@ module.exports = async (req, res) => {
                    $('.poster img').attr('src') || 
                    $('meta[property="og:image"]').attr('content') || '';
     
-    // Synopsis
     const synopsis = $('.entry-content p, .sinopsis p, .desc p, .synopsis, [class*="synopsis"]').first().text().trim() ||
                      $('meta[property="og:description"]').attr('content') || '';
     
-    // Metadata
     const infoMap = {};
     $('.infox .spe span, .info-content .spe span, .detail-info span, .meta span').each((i, el) => {
       const text = $(el).text().trim();
@@ -72,7 +76,6 @@ module.exports = async (req, res) => {
       }
     });
     
-    // Try table-based info
     $('.infox table tr, .detail-info table tr').each((i, el) => {
       const tds = $(el).find('td');
       if (tds.length >= 2) {
@@ -89,14 +92,12 @@ module.exports = async (req, res) => {
     const year = infoMap['year'] || infoMap['tahun'] || infoMap['released'] || '';
     const totalEpisodes = infoMap['total episodes'] || infoMap['episodes'] || infoMap['jumlah episode'] || '';
     
-    // Genres
     const genres = [];
     $('.genxed a, .genre a, .genres a, [class*="genre"] a').each((i, el) => {
       const g = $(el).text().trim();
       if (g) genres.push(g);
     });
     
-    // Episodes
     const episodes = [];
     $('.episodelist li, .epsdlist li, .episode-list li, .episodes li, .eplister li, .ep-list li').each((i, el) => {
       const $el = $(el);
@@ -115,7 +116,6 @@ module.exports = async (req, res) => {
       }
     });
     
-    // If no episodes found, try broader selectors
     if (episodes.length === 0) {
       $('a[href*="/episode/"]').each((i, el) => {
         const $el = $(el);
@@ -135,7 +135,6 @@ module.exports = async (req, res) => {
       });
     }
     
-    // Sort episodes by number
     episodes.sort((a, b) => (a.number || 0) - (b.number || 0));
     
     res.status(200).json({
@@ -160,7 +159,7 @@ module.exports = async (req, res) => {
     
   } catch (error) {
     console.error('Detail error:', error.message);
-    res.status(500).json({
+    res.status(200).json({
       success: false,
       error: error.message,
       anime: null

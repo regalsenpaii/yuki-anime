@@ -1,8 +1,3 @@
-/**
- * API Episode - Get episode stream/embed links
- * Vercel Serverless Function
- */
-
 const axios = require('axios');
 const cheerio = require('cheerio');
 
@@ -10,12 +5,24 @@ const BASE_URL = 'https://s13.nontonanimeid.boats';
 
 const axiosConfig = {
   headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
-    'Referer': BASE_URL
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': BASE_URL,
+    'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0'
   },
-  timeout: 15000
+  timeout: 20000,
+  maxRedirects: 5,
+  decompress: true
 };
 
 function extractSlug(url) {
@@ -32,25 +39,17 @@ function extractEpisodeNumber(text) {
 
 function cleanEmbedUrl(url) {
   if (!url) return null;
-  
-  // Remove tracking parameters and popups
   let clean = url;
-  
-  // Common ad/popup removal patterns
   const adPatterns = [
     /[?&]ref=[^&]+/gi,
     /[?&]source=[^&]+/gi,
     /[?&]pop=[^&]+/gi,
     /[?&]ads=[^&]+/gi
   ];
-  
   adPatterns.forEach(pattern => {
     clean = clean.replace(pattern, '');
   });
-  
-  // Remove trailing ? or &
   clean = clean.replace(/[?&]$/, '');
-  
   return clean;
 }
 
@@ -72,11 +71,9 @@ module.exports = async (req, res) => {
     const { data: html } = await axios.get(episodeUrl, axiosConfig);
     const $ = cheerio.load(html);
     
-    // Episode info
     const title = $('h1.entry-title, .entry-title h1, h1').first().text().trim();
     const episodeNumber = extractEpisodeNumber(title) || extractEpisodeNumber(slug) || 1;
     
-    // Extract anime title and slug from breadcrumb or title
     let animeTitle = '';
     let animeSlug = '';
     
@@ -87,38 +84,32 @@ module.exports = async (req, res) => {
     }
     
     if (!animeTitle) {
-      // Try to extract from episode title
       const titleParts = title.split(/[-–]/);
       if (titleParts.length > 1) {
         animeTitle = titleParts[0].replace(/episode\s*\d+/i, '').trim();
       }
     }
     
-    // Find video sources
     let embedUrl = null;
     let videoUrl = null;
     let poster = null;
     
-    // Check for iframe embed
     const iframe = $('iframe').first();
     if (iframe.length) {
       embedUrl = cleanEmbedUrl(iframe.attr('src'));
     }
     
-    // Check for video element
     const video = $('video').first();
     if (video.length) {
       videoUrl = video.attr('src') || video.find('source').first().attr('src');
       poster = video.attr('poster');
     }
     
-    // Check for data attributes with video URLs
     if (!embedUrl && !videoUrl) {
       const dataSrc = $('[data-src*="embed"], [data-url*="embed"], [data-video]').first();
       embedUrl = cleanEmbedUrl(dataSrc.attr('data-src') || dataSrc.attr('data-url') || dataSrc.attr('data-video'));
     }
     
-    // Check script tags for video URLs
     if (!embedUrl && !videoUrl) {
       $('script').each((i, el) => {
         const script = $(el).html() || '';
@@ -130,7 +121,6 @@ module.exports = async (req, res) => {
       });
     }
     
-    // Check for alternative players
     const playerLinks = [];
     $('.server-item, .mirror option, .player-option, .source-item').each((i, el) => {
       const $el = $(el);
@@ -138,24 +128,18 @@ module.exports = async (req, res) => {
       const label = $el.text().trim() || $el.attr('data-name') || `Server ${i + 1}`;
       
       if (src) {
-        playerLinks.push({
-          label,
-          url: cleanEmbedUrl(src)
-        });
+        playerLinks.push({ label, url: cleanEmbedUrl(src) });
       }
     });
     
-    // If main embed not found but alternatives exist, use first alternative
     if (!embedUrl && playerLinks.length > 0) {
       embedUrl = playerLinks[0].url;
     }
     
-    // Fetch episode list for navigation
     let episodes = [];
     let prevSlug = null;
     let nextSlug = null;
     
-    // Try to get all episodes from the anime page link
     if (animeSlug) {
       try {
         const animeUrl = `${BASE_URL}/anime/${animeSlug}/`;
@@ -173,15 +157,10 @@ module.exports = async (req, res) => {
           const epNum = extractEpisodeNumber(epTitle) || (i + 1);
           
           if (epSlug) {
-            episodes.push({
-              slug: epSlug,
-              title: epTitle,
-              number: epNum
-            });
+            episodes.push({ slug: epSlug, title: epTitle, number: epNum });
           }
         });
         
-        // Sort and find prev/next
         episodes.sort((a, b) => (a.number || 0) - (b.number || 0));
         
         const currentIndex = episodes.findIndex(e => e.slug === slug);
@@ -190,11 +169,10 @@ module.exports = async (req, res) => {
           nextSlug = episodes[currentIndex + 1].slug;
         }
       } catch (e) {
-        // Silently fail episode list fetch
+        // silent
       }
     }
     
-    // If still no episode list, try current page
     if (episodes.length === 0) {
       $('.episodelist li a, .eplister li a, .episode-list li a').each((i, el) => {
         const $a = $(el);
@@ -204,11 +182,7 @@ module.exports = async (req, res) => {
         const epNum = extractEpisodeNumber(epTitle) || (i + 1);
         
         if (epSlug && !episodes.find(e => e.slug === epSlug)) {
-          episodes.push({
-            slug: epSlug,
-            title: epTitle,
-            number: epNum
-          });
+          episodes.push({ slug: epSlug, title: epTitle, number: epNum });
         }
       });
       
@@ -242,7 +216,7 @@ module.exports = async (req, res) => {
     
   } catch (error) {
     console.error('Episode error:', error.message);
-    res.status(500).json({
+    res.status(200).json({
       success: false,
       error: error.message,
       episode: null
