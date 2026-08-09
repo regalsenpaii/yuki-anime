@@ -1,29 +1,16 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-const BASE_URL = 'https://s13.nontonanimeid.boats';
+const BASE_URL = 'https://samehadaku.ac';
 
 const axiosConfig = {
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Referer': 'https://www.google.com/',
-    'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'cross-site',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    'Cache-Control': 'max-age=0',
-    'Connection': 'keep-alive'
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+    'Referer': 'https://www.google.com/'
   },
-  timeout: 20000,
-  maxRedirects: 5,
-  decompress: true
+  timeout: 20000
 };
 
 function extractSlug(url) {
@@ -36,18 +23,14 @@ function extractSlug(url) {
 function parseAnimeCard($, element) {
   const $el = $(element);
   
-  const link = $el.find('a').first().attr('href') || 
-               $el.find('.bsx a').attr('href') || 
-               $el.find('.thumb a').attr('href') || '';
-  
-  const title = $el.find('.tt h2, .tt h4, .entry-title a, h2 a, .title, h3').first().text().trim() ||
+  const link = $el.find('a').first().attr('href') || '';
+  const title = $el.find('h2, h3, h4, .title, a').first().text().trim() || 
                 $el.find('a').first().attr('title') || '';
   
   const poster = $el.find('img').first().attr('src') || 
-                 $el.find('img').first().attr('data-src') || 
-                 $el.find('img').first().attr('data-lazy-src') || '';
+                 $el.find('img').first().attr('data-src') || '';
   
-  const status = $el.find('.status, .type, .sb, .limit .bt span').first().text().trim();
+  const status = $el.find('.type, .status, .tt span').first().text().trim();
   const episode = $el.find('.epx, .episode, .num, .latest-chapter').first().text().trim();
   const rating = $el.find('.rating, .numscore').first().text().trim();
   
@@ -65,7 +48,6 @@ function parseAnimeCard($, element) {
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
   if (req.method === 'OPTIONS') return res.status(200).end();
   
@@ -78,32 +60,39 @@ module.exports = async (req, res) => {
     const popular = [];
     const featured = [];
     
-    // Ongoing
-    $('.listupd .bsx, .ongoing .bsx, .series-ongoing .bsx, [class*="ongoing"] .bsx').each((i, el) => {
-      if (i < 24) ongoing.push(parseAnimeCard($, el));
-    });
-    
-    if (ongoing.length === 0) {
-      $('.bsx, .animposx, .anime-card, .item').slice(0, 24).each((i, el) => {
-        ongoing.push(parseAnimeCard($, el));
-      });
-    }
-    
-    // Latest
-    $('.listupd .bsx, .latest .bsx, .new-series .bsx, .updates .bsx').each((i, el) => {
+    // Samehadaku latest release
+    $('.listupd .bsx, .animposx, .anime-item, .post-item').each((i, el) => {
       if (i < 24) latest.push(parseAnimeCard($, el));
     });
     
-    // Popular
-    $('.popular .bsx, .trending .bsx, .hot-series .bsx, .pop .bsx').each((i, el) => {
+    // If still empty, grab all anime links from homepage
+    if (latest.length === 0) {
+      $('a[href*="/anime/"]').each((i, el) => {
+        if (i >= 24) return false;
+        const $a = $(el);
+        const href = $a.attr('href') || '';
+        const title = $a.text().trim() || $a.attr('title') || '';
+        const img = $a.find('img').attr('src') || $a.find('img').attr('data-src') || '';
+        if (title && href && !latest.find(x => x.slug === extractSlug(href))) {
+          latest.push({
+            slug: extractSlug(href),
+            title,
+            poster: img,
+            status: 'On-going',
+            latestEpisode: '',
+            rating: '',
+            url: href.startsWith('http') ? href : `${BASE_URL}${href}`
+          });
+        }
+      });
+    }
+    
+    // Recommendation / Popular section
+    $('.bixbox .bsx, .series-gen .bsx, .pop .bsx, .trending .bsx').each((i, el) => {
       if (i < 12) popular.push(parseAnimeCard($, el));
     });
     
-    // Featured
-    $('.bixbox .bsx, .featured .bsx, .highlight .bsx').slice(0, 5).each((i, el) => {
-      featured.push(parseAnimeCard($, el));
-    });
-    
+    // Ongoing = same as latest for samehadaku (they mix it)
     const dedupe = (arr) => {
       const seen = new Set();
       return arr.filter(item => {
@@ -113,28 +102,23 @@ module.exports = async (req, res) => {
       });
     };
     
-    const allItems = [...ongoing, ...latest, ...popular, ...featured];
-    const uniqueAll = dedupe(allItems);
+    const uniqueLatest = dedupe(latest);
+    const uniquePopular = dedupe(popular);
     
-    const result = {
+    res.status(200).json({
       success: true,
-      ongoing: dedupe(ongoing).length > 0 ? dedupe(ongoing) : uniqueAll.slice(0, 12),
-      latest: dedupe(latest).length > 0 ? dedupe(latest) : uniqueAll.slice(12, 24),
-      popular: dedupe(popular).length > 0 ? dedupe(popular) : uniqueAll.slice(0, 12),
-      featured: dedupe(featured).length > 0 ? dedupe(featured) : uniqueAll.slice(0, 5)
-    };
-    
-    res.status(200).json(result);
+      ongoing: uniqueLatest.slice(0, 12),
+      latest: uniqueLatest,
+      popular: uniquePopular.length > 0 ? uniquePopular : uniqueLatest.slice(0, 12),
+      featured: uniqueLatest.slice(0, 5)
+    });
     
   } catch (error) {
     console.error('Home scrape error:', error.message);
     res.status(200).json({
       success: false,
       error: error.message,
-      ongoing: [],
-      latest: [],
-      popular: [],
-      featured: []
+      ongoing: [], latest: [], popular: [], featured: []
     });
   }
 };

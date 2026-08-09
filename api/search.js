@@ -1,28 +1,16 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-const BASE_URL = 'https://s13.nontonanimeid.boats';
+const BASE_URL = 'https://samehadaku.ac';
 
 const axiosConfig = {
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Referer': BASE_URL,
-    'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'same-origin',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    'Cache-Control': 'max-age=0'
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+    'Referer': BASE_URL
   },
-  timeout: 20000,
-  maxRedirects: 5,
-  decompress: true
+  timeout: 20000
 };
 
 function extractSlug(url) {
@@ -35,14 +23,12 @@ function extractSlug(url) {
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
   if (req.method === 'OPTIONS') return res.status(200).end();
   
   const { q } = req.query;
-  
   if (!q || q.trim().length === 0) {
-    return res.status(400).json({ success: false, error: 'Query parameter "q" is required', results: [] });
+    return res.status(400).json({ success: false, error: 'Query required', results: [] });
   }
   
   try {
@@ -52,48 +38,48 @@ module.exports = async (req, res) => {
     
     const results = [];
     
-    const selectors = [
-      '.listupd .bsx',
-      '.search-results .bsx',
-      '.result .bsx',
-      '.bsx',
-      '.animposx',
-      '.anime-card',
-      '.item'
-    ];
+    // Primary selector
+    $('.listupd .bsx, .animposx, .search-item, .result-item').each((i, el) => {
+      if (i >= 50) return false;
+      const $el = $(el);
+      const link = $el.find('a').first().attr('href') || '';
+      const title = $el.find('h2, h3, .title, a').first().text().trim() || $el.find('a').first().attr('title') || '';
+      const poster = $el.find('img').first().attr('src') || $el.find('img').first().attr('data-src') || '';
+      const status = $el.find('.type, .status').first().text().trim();
+      
+      if (title && link) {
+        results.push({
+          slug: extractSlug(link),
+          title,
+          poster,
+          status: status || 'Unknown',
+          latestEpisode: '',
+          rating: '',
+          url: link.startsWith('http') ? link : `${BASE_URL}${link}`
+        });
+      }
+    });
     
-    for (const selector of selectors) {
-      $(selector).each((i, el) => {
+    // Fallback: grab any anime link
+    if (results.length === 0) {
+      $('a[href*="/anime/"]').each((i, el) => {
         if (i >= 50) return false;
-        
-        const $el = $(el);
-        const link = $el.find('a').first().attr('href') || 
-                     $el.find('.thumb a').attr('href') || '';
-        
-        const title = $el.find('.tt h2, .tt h4, .entry-title a, h2 a, .title, h3, a').first().text().trim() ||
-                      $el.find('a').first().attr('title') || '';
-        
-        const poster = $el.find('img').first().attr('src') || 
-                       $el.find('img').first().attr('data-src') || '';
-        
-        const status = $el.find('.status, .type, .sb').first().text().trim();
-        const episode = $el.find('.epx, .episode, .num').first().text().trim();
-        const rating = $el.find('.rating, .numscore').first().text().trim();
-        
-        if (title && link) {
+        const $a = $(el);
+        const href = $a.attr('href') || '';
+        const title = $a.text().trim() || $a.attr('title') || '';
+        const img = $a.find('img').attr('src') || $a.find('img').attr('data-src') || '';
+        if (title && href && !results.find(x => x.slug === extractSlug(href))) {
           results.push({
-            slug: extractSlug(link),
+            slug: extractSlug(href),
             title,
-            poster,
-            status: status || 'Unknown',
-            latestEpisode: episode || '',
-            rating: rating || '',
-            url: link.startsWith('http') ? link : `${BASE_URL}${link}`
+            poster: img,
+            status: 'Unknown',
+            latestEpisode: '',
+            rating: '',
+            url: href.startsWith('http') ? href : `${BASE_URL}${href}`
           });
         }
       });
-      
-      if (results.length > 0) break;
     }
     
     const seen = new Set();

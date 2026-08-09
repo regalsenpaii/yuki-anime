@@ -1,28 +1,16 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-const BASE_URL = 'https://s13.nontonanimeid.boats';
+const BASE_URL = 'https://samehadaku.ac';
 
 const axiosConfig = {
   headers: {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Referer': BASE_URL,
-    'sec-ch-ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'same-origin',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    'Cache-Control': 'max-age=0'
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+    'Referer': BASE_URL
   },
-  timeout: 20000,
-  maxRedirects: 5,
-  decompress: true
+  timeout: 20000
 };
 
 function extractSlug(url) {
@@ -40,38 +28,26 @@ function extractEpisodeNumber(text) {
 function cleanEmbedUrl(url) {
   if (!url) return null;
   let clean = url;
-  const adPatterns = [
-    /[?&]ref=[^&]+/gi,
-    /[?&]source=[^&]+/gi,
-    /[?&]pop=[^&]+/gi,
-    /[?&]ads=[^&]+/gi
-  ];
-  adPatterns.forEach(pattern => {
-    clean = clean.replace(pattern, '');
-  });
-  clean = clean.replace(/[?&]$/, '');
-  return clean;
+  const adPatterns = [/[?&]ref=[^&]+/gi, /[?&]source=[^&]+/gi, /[?&]pop=[^&]+/gi];
+  adPatterns.forEach(p => clean = clean.replace(p, ''));
+  return clean.replace(/[?&]$/, '');
 }
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
   if (req.method === 'OPTIONS') return res.status(200).end();
   
   const { slug } = req.query;
-  
-  if (!slug) {
-    return res.status(400).json({ success: false, error: 'Query parameter "slug" is required' });
-  }
+  if (!slug) return res.status(400).json({ success: false, error: 'Slug required' });
   
   try {
     const episodeUrl = `${BASE_URL}/episode/${slug}/`;
     const { data: html } = await axios.get(episodeUrl, axiosConfig);
     const $ = cheerio.load(html);
     
-    const title = $('h1.entry-title, .entry-title h1, h1').first().text().trim();
+    const title = $('h1.entry-title, h1').first().text().trim();
     const episodeNumber = extractEpisodeNumber(title) || extractEpisodeNumber(slug) || 1;
     
     let animeTitle = '';
@@ -84,10 +60,8 @@ module.exports = async (req, res) => {
     }
     
     if (!animeTitle) {
-      const titleParts = title.split(/[-–]/);
-      if (titleParts.length > 1) {
-        animeTitle = titleParts[0].replace(/episode\s*\d+/i, '').trim();
-      }
+      const parts = title.split(/[-–]/);
+      if (parts.length > 1) animeTitle = parts[0].replace(/episode\s*\d+/i, '').trim();
     }
     
     let embedUrl = null;
@@ -95,9 +69,7 @@ module.exports = async (req, res) => {
     let poster = null;
     
     const iframe = $('iframe').first();
-    if (iframe.length) {
-      embedUrl = cleanEmbedUrl(iframe.attr('src'));
-    }
+    if (iframe.length) embedUrl = cleanEmbedUrl(iframe.attr('src'));
     
     const video = $('video').first();
     if (video.length) {
@@ -113,11 +85,9 @@ module.exports = async (req, res) => {
     if (!embedUrl && !videoUrl) {
       $('script').each((i, el) => {
         const script = $(el).html() || '';
-        const embedMatch = script.match(/src["']?\s*:\s*["']([^"']+(?:embed|stream|video)[^"']*)["']/i) ||
-                          script.match(/url["']?\s*:\s*["']([^"']+)["']/i);
-        if (embedMatch && !embedUrl) {
-          embedUrl = cleanEmbedUrl(embedMatch[1]);
-        }
+        const match = script.match(/src["']?\s*:\s*["']([^"']+(?:embed|stream|video)[^"']*)["']/i) ||
+                      script.match(/url["']?\s*:\s*["']([^"']+)["']/i);
+        if (match && !embedUrl) embedUrl = cleanEmbedUrl(match[1]);
       });
     }
     
@@ -126,15 +96,10 @@ module.exports = async (req, res) => {
       const $el = $(el);
       const src = $el.attr('data-src') || $el.attr('value') || $el.attr('data-video');
       const label = $el.text().trim() || $el.attr('data-name') || `Server ${i + 1}`;
-      
-      if (src) {
-        playerLinks.push({ label, url: cleanEmbedUrl(src) });
-      }
+      if (src) playerLinks.push({ label, url: cleanEmbedUrl(src) });
     });
     
-    if (!embedUrl && playerLinks.length > 0) {
-      embedUrl = playerLinks[0].url;
-    }
+    if (!embedUrl && playerLinks.length > 0) embedUrl = playerLinks[0].url;
     
     let episodes = [];
     let prevSlug = null;
@@ -143,34 +108,23 @@ module.exports = async (req, res) => {
     if (animeSlug) {
       try {
         const animeUrl = `${BASE_URL}/anime/${animeSlug}/`;
-        const { data: animeHtml } = await axios.get(animeUrl, {
-          ...axiosConfig,
-          timeout: 10000
-        });
+        const { data: animeHtml } = await axios.get(animeUrl, { ...axiosConfig, timeout: 10000 });
         const $anime = cheerio.load(animeHtml);
         
-        $anime('.episodelist li a, .eplister li a, .episode-list li a, .epsdlist li a').each((i, el) => {
+        $anime('.episodelist li a, .eplister li a, .episode-list li a').each((i, el) => {
           const $a = $anime(el);
           const link = $a.attr('href') || '';
           const epSlug = extractSlug(link);
           const epTitle = $a.text().trim();
           const epNum = extractEpisodeNumber(epTitle) || (i + 1);
-          
-          if (epSlug) {
-            episodes.push({ slug: epSlug, title: epTitle, number: epNum });
-          }
+          if (epSlug) episodes.push({ slug: epSlug, title: epTitle, number: epNum });
         });
         
         episodes.sort((a, b) => (a.number || 0) - (b.number || 0));
-        
-        const currentIndex = episodes.findIndex(e => e.slug === slug);
-        if (currentIndex > 0) prevSlug = episodes[currentIndex - 1].slug;
-        if (currentIndex >= 0 && currentIndex < episodes.length - 1) {
-          nextSlug = episodes[currentIndex + 1].slug;
-        }
-      } catch (e) {
-        // silent
-      }
+        const idx = episodes.findIndex(e => e.slug === slug);
+        if (idx > 0) prevSlug = episodes[idx - 1].slug;
+        if (idx >= 0 && idx < episodes.length - 1) nextSlug = episodes[idx + 1].slug;
+      } catch (e) {}
     }
     
     if (episodes.length === 0) {
@@ -180,19 +134,14 @@ module.exports = async (req, res) => {
         const epSlug = extractSlug(link);
         const epTitle = $a.text().trim();
         const epNum = extractEpisodeNumber(epTitle) || (i + 1);
-        
         if (epSlug && !episodes.find(e => e.slug === epSlug)) {
           episodes.push({ slug: epSlug, title: epTitle, number: epNum });
         }
       });
-      
       episodes.sort((a, b) => (a.number || 0) - (b.number || 0));
-      
-      const currentIndex = episodes.findIndex(e => e.slug === slug);
-      if (currentIndex > 0) prevSlug = episodes[currentIndex - 1].slug;
-      if (currentIndex >= 0 && currentIndex < episodes.length - 1) {
-        nextSlug = episodes[currentIndex + 1].slug;
-      }
+      const idx = episodes.findIndex(e => e.slug === slug);
+      if (idx > 0) prevSlug = episodes[idx - 1].slug;
+      if (idx >= 0 && idx < episodes.length - 1) nextSlug = episodes[idx + 1].slug;
     }
     
     res.status(200).json({
