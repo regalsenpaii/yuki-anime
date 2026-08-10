@@ -1,108 +1,55 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-
-const BASE_URL = 'https://samehadaku.ac';
-
-const axiosConfig = {
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
-    'Referer': BASE_URL
-  },
-  timeout: 20000
-};
-
-function extractSlug(url) {
-  if (!url) return '';
-  const clean = url.replace(/\/$/, '');
-  const parts = clean.split('/');
-  return parts[parts.length - 1] || '';
-}
+const { setCorsHeaders, handleError, fetchHTML, extractAnimeList, BASE_URL } = require('./_utils');
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  
-  const { q } = req.query;
-  if (!q || q.trim().length === 0) {
-    return res.status(400).json({ success: false, error: 'Query required', results: [] });
+  setCorsHeaders(res);
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
   }
-  
+
   try {
-    const searchUrl = `${BASE_URL}/?s=${encodeURIComponent(q)}`;
-    const { data: html } = await axios.get(searchUrl, axiosConfig);
-    const $ = cheerio.load(html);
-    
-    const results = [];
-    
-    // Primary selector
-    $('.listupd .bsx, .animposx, .search-item, .result-item').each((i, el) => {
-      if (i >= 50) return false;
-      const $el = $(el);
-      const link = $el.find('a').first().attr('href') || '';
-      const title = $el.find('h2, h3, .title, a').first().text().trim() || $el.find('a').first().attr('title') || '';
-      const poster = $el.find('img').first().attr('src') || $el.find('img').first().attr('data-src') || '';
-      const status = $el.find('.type, .status').first().text().trim();
-      
-      if (title && link) {
-        results.push({
-          slug: extractSlug(link),
-          title,
-          poster,
-          status: status || 'Unknown',
-          latestEpisode: '',
-          rating: '',
-          url: link.startsWith('http') ? link : `${BASE_URL}${link}`
-        });
+    const { q, query, page = 1 } = req.query;
+    const searchQuery = q || query || '';
+
+    if (!searchQuery) {
+      res.status(400).json({
+        success: false,
+        message: 'Query parameter "q" or "query" is required',
+        data: null,
+      });
+      return;
+    }
+
+    const searchUrl = `${BASE_URL}/page/${page}/?s=${encodeURIComponent(searchQuery)}`;
+    const $ = await fetchHTML(searchUrl);
+
+    const results = extractAnimeList($, '.listupd, .search-results, .postbody', '.bs, .animepost, .item, article');
+
+    // Get total pages info
+    const pagination = [];
+    $('.pagination a, .page-numbers').each((_, el) => {
+      const pageNum = $(el).text().trim();
+      const pageLink = $(el).attr('href') || '';
+      if (pageNum && !isNaN(parseInt(pageNum))) {
+        pagination.push({ page: parseInt(pageNum), link: pageLink });
       }
     });
-    
-    // Fallback: grab any anime link
-    if (results.length === 0) {
-      $('a[href*="/anime/"]').each((i, el) => {
-        if (i >= 50) return false;
-        const $a = $(el);
-        const href = $a.attr('href') || '';
-        const title = $a.text().trim() || $a.attr('title') || '';
-        const img = $a.find('img').attr('src') || $a.find('img').attr('data-src') || '';
-        if (title && href && !results.find(x => x.slug === extractSlug(href))) {
-          results.push({
-            slug: extractSlug(href),
-            title,
-            poster: img,
-            status: 'Unknown',
-            latestEpisode: '',
-            rating: '',
-            url: href.startsWith('http') ? href : `${BASE_URL}${href}`
-          });
-        }
-      });
-    }
-    
-    const seen = new Set();
-    const unique = results.filter(item => {
-      if (seen.has(item.slug)) return false;
-      seen.add(item.slug);
-      return true;
-    });
-    
+
+    const hasNext = $('.pagination .next, .page-numbers.next').length > 0 || 
+                    $('.pagination a:contains("Next"), .page-numbers:contains("Next")').length > 0;
+
     res.status(200).json({
       success: true,
-      query: q,
-      count: unique.length,
-      results: unique
+      data: {
+        query: searchQuery,
+        page: parseInt(page),
+        results: results.slice(0, 24),
+        hasNext,
+        totalPages: pagination.length > 0 ? Math.max(...pagination.map(p => p.page)) : 1,
+      },
     });
-    
   } catch (error) {
-    console.error('Search error:', error.message);
-    res.status(200).json({
-      success: false,
-      error: error.message,
-      query: q,
-      results: []
-    });
+    handleError(res, error);
   }
 };

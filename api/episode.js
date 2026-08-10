@@ -1,174 +1,242 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-
-const BASE_URL = 'https://samehadaku.ac';
-
-const axiosConfig = {
-  headers: {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
-    'Referer': BASE_URL
-  },
-  timeout: 20000
-};
-
-function extractSlug(url) {
-  if (!url) return '';
-  const clean = url.replace(/\/$/, '');
-  const parts = clean.split('/');
-  return parts[parts.length - 1] || '';
-}
-
-function extractEpisodeNumber(text) {
-  const match = text.match(/(\d+)/);
-  return match ? parseInt(match[1]) : null;
-}
-
-function cleanEmbedUrl(url) {
-  if (!url) return null;
-  let clean = url;
-  const adPatterns = [/[?&]ref=[^&]+/gi, /[?&]source=[^&]+/gi, /[?&]pop=[^&]+/gi];
-  adPatterns.forEach(p => clean = clean.replace(p, ''));
-  return clean.replace(/[?&]$/, '');
-}
+const { setCorsHeaders, handleError, fetchHTML, BASE_URL } = require('./_utils');
 
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  
-  const { slug } = req.query;
-  if (!slug) return res.status(400).json({ success: false, error: 'Slug required' });
-  
+  setCorsHeaders(res);
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
   try {
-    const episodeUrl = `${BASE_URL}/episode/${slug}/`;
-    const { data: html } = await axios.get(episodeUrl, axiosConfig);
-    const $ = cheerio.load(html);
-    
-    const title = $('h1.entry-title, h1').first().text().trim();
-    const episodeNumber = extractEpisodeNumber(title) || extractEpisodeNumber(slug) || 1;
-    
-    let animeTitle = '';
-    let animeSlug = '';
-    
-    const breadcrumbAnime = $('.breadcrumb a, .breadcrumbs a').eq(1).attr('href') || '';
-    if (breadcrumbAnime.includes('/anime/')) {
-      animeSlug = extractSlug(breadcrumbAnime);
-      animeTitle = $('.breadcrumb a, .breadcrumbs a').eq(1).text().trim();
+    const { id, slug, url } = req.query;
+    let episodeUrl = url || '';
+
+    if (!episodeUrl && id) {
+      episodeUrl = `${BASE_URL}/${id}/`;
     }
-    
-    if (!animeTitle) {
-      const parts = title.split(/[-–]/);
-      if (parts.length > 1) animeTitle = parts[0].replace(/episode\s*\d+/i, '').trim();
-    }
-    
-    let embedUrl = null;
-    let videoUrl = null;
-    let poster = null;
-    
-    const iframe = $('iframe').first();
-    if (iframe.length) embedUrl = cleanEmbedUrl(iframe.attr('src'));
-    
-    const video = $('video').first();
-    if (video.length) {
-      videoUrl = video.attr('src') || video.find('source').first().attr('src');
-      poster = video.attr('poster');
-    }
-    
-    if (!embedUrl && !videoUrl) {
-      const dataSrc = $('[data-src*="embed"], [data-url*="embed"], [data-video]').first();
-      embedUrl = cleanEmbedUrl(dataSrc.attr('data-src') || dataSrc.attr('data-url') || dataSrc.attr('data-video'));
-    }
-    
-    if (!embedUrl && !videoUrl) {
-      $('script').each((i, el) => {
-        const script = $(el).html() || '';
-        const match = script.match(/src["']?\s*:\s*["']([^"']+(?:embed|stream|video)[^"']*)["']/i) ||
-                      script.match(/url["']?\s*:\s*["']([^"']+)["']/i);
-        if (match && !embedUrl) embedUrl = cleanEmbedUrl(match[1]);
+
+    if (!episodeUrl) {
+      res.status(400).json({
+        success: false,
+        message: 'Parameter "url", "id", or "slug" is required',
+        data: null,
       });
+      return;
     }
-    
-    const playerLinks = [];
-    $('.server-item, .mirror option, .player-option, .source-item').each((i, el) => {
+
+    const $ = await fetchHTML(episodeUrl);
+
+    // Extract anime title and episode info
+    const title = $('.entry-title, h1').first().text().trim() || '';
+    const episodeMatch = title.match(/Episode\s*(\d+)/i) || episodeUrl.match(/episode-(\d+)/i);
+    const episodeNumber = episodeMatch ? parseInt(episodeMatch[1]) : null;
+
+    // Extract anime slug for navigation
+    const animeSlugMatch = episodeUrl.match(/anime\/([^\/]+)/) || episodeUrl.match(/([^\/]+)-episode-/);
+    const animeSlug = animeSlugMatch ? animeSlugMatch[1] : '';
+
+    // Extract all video servers
+    const servers = [];
+
+    // Method 1: Extract from download links / server tabs
+    $('.server-item, .server, .mirror, [class*="server"]').each((_, el) => {
       const $el = $(el);
-      const src = $el.attr('data-src') || $el.attr('value') || $el.attr('data-video');
-      const label = $el.text().trim() || $el.attr('data-name') || `Server ${i + 1}`;
-      if (src) playerLinks.push({ label, url: cleanEmbedUrl(src) });
-    });
-    
-    if (!embedUrl && playerLinks.length > 0) embedUrl = playerLinks[0].url;
-    
-    let episodes = [];
-    let prevSlug = null;
-    let nextSlug = null;
-    
-    if (animeSlug) {
-      try {
-        const animeUrl = `${BASE_URL}/anime/${animeSlug}/`;
-        const { data: animeHtml } = await axios.get(animeUrl, { ...axiosConfig, timeout: 10000 });
-        const $anime = cheerio.load(animeHtml);
-        
-        $anime('.episodelist li a, .eplister li a, .episode-list li a').each((i, el) => {
-          const $a = $anime(el);
-          const link = $a.attr('href') || '';
-          const epSlug = extractSlug(link);
-          const epTitle = $a.text().trim();
-          const epNum = extractEpisodeNumber(epTitle) || (i + 1);
-          if (epSlug) episodes.push({ slug: epSlug, title: epTitle, number: epNum });
+      const serverName = $el.find('.server-name, .name, h3, h4, span').first().text().trim() || 
+                         $el.attr('data-server') || 
+                         `Server ${servers.length + 1}`;
+
+      // Look for iframe or video source
+      const iframe = $el.find('iframe').first();
+      const video = $el.find('video source, video').first();
+      const link = $el.find('a').first();
+
+      let embedUrl = iframe.attr('src') || 
+                     video.attr('src') || 
+                     link.attr('href') || 
+                     $el.attr('data-src') || 
+                     $el.attr('data-link') || '';
+
+      // Look for data attributes
+      if (!embedUrl) {
+        embedUrl = $el.attr('data-embed') || 
+                   $el.attr('data-video') || 
+                   $el.attr('data-url') || '';
+      }
+
+      if (embedUrl) {
+        // Determine quality if available
+        const qualityText = $el.find('.quality, .res').first().text().trim() || '';
+        const quality = qualityText.match(/(360|480|720|1080)p?/i)?.[0] || 'Auto';
+
+        servers.push({
+          name: serverName,
+          embedUrl,
+          quality,
+          type: 'embed',
         });
-        
-        episodes.sort((a, b) => (a.number || 0) - (b.number || 0));
-        const idx = episodes.findIndex(e => e.slug === slug);
-        if (idx > 0) prevSlug = episodes[idx - 1].slug;
-        if (idx >= 0 && idx < episodes.length - 1) nextSlug = episodes[idx + 1].slug;
-      } catch (e) {}
-    }
-    
-    if (episodes.length === 0) {
-      $('.episodelist li a, .eplister li a, .episode-list li a').each((i, el) => {
-        const $a = $(el);
-        const link = $a.attr('href') || '';
-        const epSlug = extractSlug(link);
-        const epTitle = $a.text().trim();
-        const epNum = extractEpisodeNumber(epTitle) || (i + 1);
-        if (epSlug && !episodes.find(e => e.slug === epSlug)) {
-          episodes.push({ slug: epSlug, title: epTitle, number: epNum });
-        }
-      });
-      episodes.sort((a, b) => (a.number || 0) - (b.number || 0));
-      const idx = episodes.findIndex(e => e.slug === slug);
-      if (idx > 0) prevSlug = episodes[idx - 1].slug;
-      if (idx >= 0 && idx < episodes.length - 1) nextSlug = episodes[idx + 1].slug;
-    }
-    
-    res.status(200).json({
-      success: true,
-      episode: {
-        slug,
-        title,
-        number: episodeNumber,
-        animeTitle,
-        animeSlug,
-        poster: poster || $('.thumb img').attr('src') || '',
-        embedUrl,
-        videoUrl,
-        sources: playerLinks,
-        prevSlug,
-        nextSlug,
-        episodes,
-        url: episodeUrl
       }
     });
-    
-  } catch (error) {
-    console.error('Episode error:', error.message);
-    res.status(200).json({
-      success: false,
-      error: error.message,
-      episode: null
+
+    // Method 2: Extract from download section / direct links
+    $('.download, .dl, [class*="download"]').each((_, el) => {
+      const $el = $(el);
+      $el.find('a').each((_, linkEl) => {
+        const $link = $(linkEl);
+        const href = $link.attr('href') || '';
+        const linkText = $link.text().trim() || '';
+
+        if (href && (href.includes('.mp4') || href.includes('akamai') || href.includes('cdn'))) {
+          const quality = linkText.match(/(360|480|720|1080)p?/i)?.[0] || 'Auto';
+          const serverName = linkText.includes('Akamai') ? 'Akamai' : 
+                            linkText.includes('Odnoklassniki') ? 'OK.ru' :
+                            linkText.includes('StreamSB') ? 'StreamSB' :
+                            linkText.includes('Streamtape') ? 'StreamTape' :
+                            linkText.includes('Doodstream') ? 'DoodStream' :
+                            `Download ${quality}`;
+
+          // Check if this server already exists
+          const exists = servers.find(s => s.embedUrl === href);
+          if (!exists) {
+            servers.push({
+              name: serverName,
+              embedUrl: href,
+              quality,
+              type: href.includes('.mp4') ? 'direct' : 'embed',
+            });
+          }
+        }
+      });
     });
+
+    // Method 3: Look for iframe directly in content
+    if (servers.length === 0) {
+      $('iframe').each((_, el) => {
+        const src = $(el).attr('src') || $(el).attr('data-src') || '';
+        if (src) {
+          const serverName = $(el).attr('title') || 
+                            $(el).closest('[class*="server"]').find('.server-name').first().text().trim() ||
+                            `Server ${servers.length + 1}`;
+
+          servers.push({
+            name: serverName,
+            embedUrl: src,
+            quality: 'Auto',
+            type: 'embed',
+          });
+        }
+      });
+    }
+
+    // Method 4: Extract from script tags (some sites embed video data in JS)
+    $('script').each((_, el) => {
+      const scriptText = $(el).html() || '';
+
+      // Look for video URL patterns
+      const videoPatterns = [
+        /["'](https?:\/\/[^"']+\.mp4[^"']*)["']/g,
+        /["'](https?:\/\/[^"']*akamai[^"']*)["']/g,
+        /["'](https?:\/\/[^"']*stream[^"']*)["']/g,
+      ];
+
+      videoPatterns.forEach(pattern => {
+        let match;
+        while ((match = pattern.exec(scriptText)) !== null) {
+          const url = match[1];
+          const exists = servers.find(s => s.embedUrl === url);
+          if (!exists && url.length > 10) {
+            servers.push({
+              name: 'Direct',
+              embedUrl: url,
+              quality: 'Auto',
+              type: 'direct',
+            });
+          }
+        }
+      });
+    });
+
+    // Method 5: Look for video element
+    $('video source').each((_, el) => {
+      const src = $(el).attr('src') || '';
+      const type = $(el).attr('type') || '';
+      if (src) {
+        const exists = servers.find(s => s.embedUrl === src);
+        if (!exists) {
+          servers.push({
+            name: 'Direct Video',
+            embedUrl: src,
+            quality: 'Auto',
+            type: 'direct',
+          });
+        }
+      }
+    });
+
+    // Extract episode list for navigation
+    const episodeList = [];
+    $('.eplister li, .episode-list li, .eps li').each((_, el) => {
+      const $el = $(el);
+      const epLink = $el.find('a').first().attr('href') || '';
+      const epTitle = $el.find('.epl-title, .title, a').first().text().trim() || '';
+      const epNumberMatch = epTitle.match(/Episode\s*(\d+)/i) || epLink.match(/episode-(\d+)/i);
+      const epNumber = epNumberMatch ? parseInt(epNumberMatch[1]) : null;
+
+      if (epLink && epNumber) {
+        episodeList.push({
+          number: epNumber,
+          title: epTitle,
+          link: epLink,
+          isCurrent: epLink === episodeUrl || epLink.includes(episodeUrl.split('/').pop() || ''),
+        });
+      }
+    });
+
+    episodeList.sort((a, b) => a.number - b.number);
+
+    // Find prev/next episodes
+    const currentIndex = episodeList.findIndex(ep => ep.isCurrent);
+    const prevEpisode = currentIndex > 0 ? episodeList[currentIndex - 1] : null;
+    const nextEpisode = currentIndex < episodeList.length - 1 ? episodeList[currentIndex + 1] : null;
+
+    // Group servers by name for cleaner UI
+    const groupedServers = [];
+    servers.forEach(server => {
+      const existing = groupedServers.find(s => s.name === server.name);
+      if (existing) {
+        existing.links.push({ url: server.embedUrl, quality: server.quality, type: server.type });
+      } else {
+        groupedServers.push({
+          name: server.name,
+          links: [{ url: server.embedUrl, quality: server.quality, type: server.type }],
+        });
+      }
+    });
+
+    // Sort links by quality
+    groupedServers.forEach(server => {
+      server.links.sort((a, b) => {
+        const qualityOrder = { '1080': 4, '720': 3, '480': 2, '360': 1, 'Auto': 0 };
+        const qa = qualityOrder[a.quality.replace('p', '')] || 0;
+        const qb = qualityOrder[b.quality.replace('p', '')] || 0;
+        return qb - qa;
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        title,
+        episodeNumber,
+        animeSlug,
+        servers: groupedServers,
+        episodeList,
+        prevEpisode,
+        nextEpisode,
+        currentUrl: episodeUrl,
+      },
+    });
+  } catch (error) {
+    handleError(res, error);
   }
 };
