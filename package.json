@@ -1,7 +1,7 @@
 {
   "name": "yuki-anime-stream",
-  "version": "1.0.0",
-  "description": "Anime streaming web app with samehadaku scraper",
+  "version": "2.0.0",
+  "description": "Anime streaming web app with configurable scraper",
   "main": "index.html",
   "scripts": {
     "dev": "vercel dev",
