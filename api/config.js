@@ -5,7 +5,7 @@
 
 const CONFIG = {
   // ===== GANTI URL SUMBER SCRAPING DI SINI =====
-  BASE_URL: 'https://samehadaku.ac',
+  BASE_URL: 'https://v2.samehadaku.how',
 
   // ===== PROXY (Opsional - jika website memblokir request) =====
   // Contoh: 'https://corsproxy.io/?'
