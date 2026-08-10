@@ -18,7 +18,6 @@ module.exports = async (req, res) => {
     const S = CONFIG.SELECTORS.search;
 
     const results = extractAnimeList($, S.container.split(', '), S.items.split(', '));
-
     const hasNext = $('.pagination .next, .page-numbers.next, a:contains("Next")').length > 0;
 
     res.status(200).json({

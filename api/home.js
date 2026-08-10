@@ -8,10 +8,8 @@ module.exports = async (req, res) => {
     const $ = await fetchHTML(CONFIG.BASE_URL + '/');
     const S = CONFIG.SELECTORS.home;
 
-    // Extract latest releases
-    const latest = extractAnimeList($, [S.latestContainer], S.latestItems.split(', '));
+    const latest = extractAnimeList($, S.latestContainer.split(', '), S.latestItems.split(', '));
 
-    // Extract ongoing
     let ongoing = [];
     for (const containerSel of S.ongoingContainer.split(', ')) {
       $(containerSel).each((_, section) => {
@@ -21,7 +19,6 @@ module.exports = async (req, res) => {
     }
     if (ongoing.length === 0) ongoing = latest.filter(a => a.status === 'Ongoing').slice(0, 12);
 
-    // Extract popular/trending
     let popular = [];
     for (const containerSel of S.popularContainer.split(', ')) {
       $(containerSel).each((_, section) => {
@@ -31,11 +28,9 @@ module.exports = async (req, res) => {
     }
     if (popular.length === 0) popular = latest.slice(0, 8);
 
-    // Deduplicate
     const seen = new Set();
     popular = popular.filter(a => { if (seen.has(a.linkId)) return false; seen.add(a.linkId); return true; });
 
-    // Extract genres
     const genres = [];
     for (const containerSel of S.genreContainer.split(', ')) {
       $(containerSel).find(S.genreItems).each((_, el) => {
@@ -46,7 +41,6 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Extract featured
     const featured = [];
     for (const containerSel of S.featuredContainer.split(', ')) {
       $(containerSel).first().find(S.featuredItems).each((_, el) => {

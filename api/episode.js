@@ -62,13 +62,13 @@ module.exports = async (req, res) => {
     // Method 2: Server tabs/buttons with data attributes
     const serverContainerSelectors = [
       '.server-item', '.server', '.mirror', '[class*="server"]', '[class*="mirror"]',
-      '.source', '.player-source', '.tab-server', '.server-list', '.video-source'
+      '.source', '.player-source', '.tab-server', '.server-list', '.video-source', '.srv'
     ];
 
     for (const sel of serverContainerSelectors) {
       $(sel).each((_, el) => {
         const $el = $(el);
-        let name = $el.find('.server-name, .name, h3, h4, span, [class*="name"]').first().text().trim() ||
+        let name = $el.find('.server-name, .name, h3, h4, span, [class*="name"], .srv-name').first().text().trim() ||
                    $el.attr('data-server') || $el.attr('data-name') || `Server ${servers.length + 1}`;
 
         let embedUrl = $el.attr('data-src') || $el.attr('data-embed') || $el.attr('data-video') ||
@@ -93,7 +93,7 @@ module.exports = async (req, res) => {
     }
 
     // Method 3: Download links section
-    const downloadSelectors = ['.download', '.dl', '[class*="download"]', '[class*="ddl"]', '.link-download'];
+    const downloadSelectors = ['.download', '.dl', '[class*="download"]', '[class*="ddl"]', '.link-download', '.download-box'];
     for (const sel of downloadSelectors) {
       $(sel).each((_, el) => {
         $(el).find('a').each((_, linkEl) => {
@@ -129,9 +129,9 @@ module.exports = async (req, res) => {
         /["'](https?:\/\/[^"']*stream[^"']*)["']/g,
         /["'](https?:\/\/[^"']*embed[^"']*)["']/g,
         /["'](https?:\/\/[^"']*player[^"']*)["']/g,
-        /src:\\s*["']([^"']+)["']/g,
-        /url:\\s*["']([^"']+)["']/g,
-        /file:\\s*["']([^"']+)["']/g,
+        /src:\s*["']([^"']+)["']/g,
+        /url:\s*["']([^"']+)["']/g,
+        /file:\s*["']([^"']+)["']/g,
       ];
 
       patterns.forEach(pattern => {

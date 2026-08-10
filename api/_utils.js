@@ -22,8 +22,10 @@ const axiosInstance = axios.create({
 });
 
 function getUrl(path) {
-  const base = CONFIG.PROXY_URL ? CONFIG.PROXY_URL + encodeURIComponent(CONFIG.BASE_URL + path) : CONFIG.BASE_URL + path;
-  return base;
+  if (CONFIG.PROXY_URL) {
+    return CONFIG.PROXY_URL + encodeURIComponent(CONFIG.BASE_URL + path);
+  }
+  return CONFIG.BASE_URL + path;
 }
 
 function setCorsHeaders(res) {
