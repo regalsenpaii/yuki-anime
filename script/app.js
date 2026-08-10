@@ -8,7 +8,7 @@ const CONFIG = {
   API_BASE: window.location.origin.includes('localhost') 
     ? 'http://localhost:3000/api' 
     : '/api',
-  PROXY_IFRAME: '', // Set proxy untuk bypass CORS/referrer, e.g., 'https://corsproxy.io/?'
+  PROXY_IFRAME: 'https://corsproxy.io', // Set proxy untuk bypass CORS/referrer, e.g., 'https://corsproxy.io/?'
   ITEMS_PER_PAGE: 24,
   DEBOUNCE_DELAY: 400,
   CACHE_DURATION: 5 * 60 * 1000,
